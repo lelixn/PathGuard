@@ -1,6 +1,11 @@
 
 import { useCallback, useState } from 'react';
-import { AlertTriangle, Crosshair, ShieldCheck, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  Crosshair,
+  ShieldCheck,
+  X,
+} from 'lucide-react';
 import Header from './components/Header';
 import Sidebar, {
   type LayerState,
@@ -8,6 +13,35 @@ import Sidebar, {
 } from './components/Sidebar';
 import MapView, { type MapPoint } from './components/MapView';
 import InsightsPanel from './components/InsightsPanel';
+
+type RouteFeature = {
+  type: 'Feature';
+  geometry: {
+    type: 'LineString';
+    coordinates: number[][];
+  };
+  properties: Record<string, unknown>;
+};
+
+type RouteResult = {
+  type: 'FeatureCollection';
+  features: RouteFeature[];
+  metadata: {
+    city: string;
+    mode: string;
+    distance_m: number;
+    distance_km: number;
+    estimated_walking_minutes: number;
+    average_estimated_safety_score: number | null;
+    mapped_attribute_coverage_percent: number;
+    route_segments: number;
+    snapped_start_distance_m: number;
+    snapped_end_distance_m: number;
+    data_source: string;
+    safety_model: string;
+    validated_safety_data: boolean;
+  };
+};
 
 function formatPoint(point: MapPoint) {
   return `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`;
@@ -26,7 +60,8 @@ export default function App() {
   const [nextPoint, setNextPoint] = useState<'start' | 'end'>('start');
 
   const [mode, setMode] = useState<RouteMode>('safest');
-  const [loading] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [routeResult, setRouteResult] = useState<RouteResult | null>(null);
   const [notice, setNotice] = useState('');
 
   const [layers, setLayers] = useState<LayerState>({
@@ -38,45 +73,129 @@ export default function App() {
     incidents: false,
   });
 
-  const onMapClick = useCallback((lng: number, lat: number) => {
-    const point = { lng, lat };
+  const clearRouteResult = useCallback(() => {
+    setRouteResult(null);
+  }, []);
 
-    if (nextPoint === 'start') {
-      setStartPoint(point);
-      setStart(formatPoint(point));
-      setNextPoint('end');
-      setNotice('Start point A selected. Click the map again to set destination B.');
-    } else {
-      setEndPoint(point);
-      setEnd(formatPoint(point));
-      setNextPoint('start');
-      setNotice('Destination B selected. The line is a straight-line preview, not a walking route.');
-    }
-  }, [nextPoint]);
+  const onMapClick = useCallback(
+    (lng: number, lat: number) => {
+      const point = { lng, lat };
 
-  
+      clearRouteResult();
+
+      if (nextPoint === 'start') {
+        setStartPoint(point);
+        setStart(formatPoint(point));
+        setNextPoint('end');
+        setNotice(
+          'Starting point A selected. Click the map again to set destination B.',
+        );
+      } else {
+        setEndPoint(point);
+        setEnd(formatPoint(point));
+        setNextPoint('start');
+        setNotice(
+          'Destination B selected. Select Find Route to calculate a real walking route.',
+        );
+      }
+    },
+    [nextPoint, clearRouteResult],
+  );
 
   function resetRoute() {
+    clearRouteResult();
     setStartPoint(null);
     setEndPoint(null);
     setNextPoint('start');
-    setNotice('Route markers cleared. Click the map to select a new start point.');
+    setNotice('Route markers cleared. Select a new starting point.');
   }
 
-  function findRoute() {
+  async function findRoute() {
+    if (loading) return;
+
     if (!start.trim() || !end.trim()) {
       setNotice('Enter both a starting point and a destination.');
       return;
     }
 
     if (!startPoint || !endPoint) {
-      setNotice('Select both points on the map first. Click once for A and again for B.');
+      setNotice(
+        'Select both points on the map first. Click once for A and again for B.',
+      );
       return;
     }
 
-    setNotice(
-      `Preview ready: ${mode} preference selected. Real pedestrian routing will be added when the backend is connected.`,
-    );
+    const cityId = city.split(',')[0].trim().toLowerCase();
+    const requestedMode = mode;
+    const requestedCity = cityId;
+    const requestedStart = { ...startPoint };
+    const requestedEnd = { ...endPoint };
+
+    setLoading(true);
+    setRouteResult(null);
+    setNotice('Calculating a pedestrian route from the street network...');
+
+    const params = new URLSearchParams({
+      start_lat: String(requestedStart.lat),
+      start_lng: String(requestedStart.lng),
+      end_lat: String(requestedEnd.lat),
+      end_lng: String(requestedEnd.lng),
+      mode: requestedMode,
+    });
+
+    try {
+      const response = await fetch(
+        `/api/route/${encodeURIComponent(requestedCity)}?${params.toString()}`,
+      );
+
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const detail =
+          typeof body?.detail === 'string'
+            ? body.detail
+            : `Route calculation failed (HTTP ${response.status}).`;
+
+        throw new Error(detail);
+      }
+
+      if (
+        body?.type !== 'FeatureCollection' ||
+        !Array.isArray(body.features) ||
+        !body.metadata
+      ) {
+        throw new Error('The routing API returned an unexpected response.');
+      }
+
+      // Ignore a response if the user changed the requested route meanwhile.
+      if (
+        requestedCity !== city.split(',')[0].trim().toLowerCase() ||
+        requestedMode !== mode ||
+        requestedStart.lat !== startPoint?.lat ||
+        requestedStart.lng !== startPoint?.lng ||
+        requestedEnd.lat !== endPoint?.lat ||
+        requestedEnd.lng !== endPoint?.lng
+      ) {
+        return;
+      }
+
+      setRouteResult(body as RouteResult);
+
+      const distance = Number(body.metadata.distance_km);
+      const minutes = Number(body.metadata.estimated_walking_minutes);
+
+      setNotice(
+        `Walking route found: ${distance.toFixed(2)} km, approximately ${Math.round(minutes)} minutes.`,
+      );
+    } catch (error) {
+      if (error instanceof Error) {
+        setNotice(error.message);
+      } else {
+        setNotice('Unable to calculate the walking route. Try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
   }
 
   function useMapCenter() {
@@ -90,10 +209,16 @@ export default function App() {
 
   function changeCity(value: string) {
     setCity(value);
+    clearRouteResult();
     setStartPoint(null);
     setEndPoint(null);
     setNextPoint('start');
-    setNotice(`Map centered on ${value}. Select new route points on the map.`);
+    setNotice(`Map centered on ${value}. Select new route points.`);
+  }
+
+  function changeMode(value: RouteMode) {
+    setMode(value);
+    clearRouteResult();
   }
 
   return (
@@ -105,7 +230,7 @@ export default function App() {
           setNotice(
             tab === 'Map'
               ? ''
-              : `${tab} workspace selected. Additional functionality will be added in later stages.`,
+              : `${tab} workspace selected. Return to Map to plan a route.`,
           );
         }}
         onMenuClick={() => setSidebarOpen(true)}
@@ -118,7 +243,10 @@ export default function App() {
             <strong>{activeTab}</strong> is part of the PATHGUARD roadmap.
             The map workspace remains available under Map.
           </span>
-          <button onClick={() => setActiveTab('Map')} aria-label="Return to map">
+          <button
+            onClick={() => setActiveTab('Map')}
+            aria-label="Return to map"
+          >
             <X size={16} />
           </button>
         </div>
@@ -146,19 +274,23 @@ export default function App() {
             city={city}
             setCity={changeCity}
             start={start}
-            setStart={setStart}
+            setStart={(value) => {
+              setStart(value);
+              clearRouteResult();
+            }}
             end={end}
-            setEnd={setEnd}
+            setEnd={(value) => {
+              setEnd(value);
+              clearRouteResult();
+            }}
             mode={mode}
-            setMode={setMode}
+            setMode={changeMode}
             layers={layers}
             setLayers={setLayers}
             onFindRoute={findRoute}
             onLocate={useMapCenter}
             loading={loading}
           />
-
-          
         </div>
 
         <section className="main-content">
@@ -166,7 +298,10 @@ export default function App() {
             <div className="notice-banner" role="status">
               <AlertTriangle size={16} />
               <span>{notice}</span>
-              <button onClick={() => setNotice('')} aria-label="Dismiss notification">
+              <button
+                onClick={() => setNotice('')}
+                aria-label="Dismiss notification"
+              >
                 <X size={15} />
               </button>
             </div>
@@ -175,8 +310,12 @@ export default function App() {
           <div className="map-heading">
             <div>
               <span className="eyebrow">GEOSPATIAL INTELLIGENCE / 02</span>
-              <h1>Street safety <span>command center</span></h1>
-              <p>Explore pedestrian infrastructure and risk-aware navigation.</p>
+              <h1>
+                Street safety <span>command center</span>
+              </h1>
+              <p>
+                Explore pedestrian infrastructure and risk-aware navigation.
+              </p>
             </div>
             <div className="workspace-status">
               <span className="status-dot" /> MAP INTERACTIVE
@@ -191,29 +330,104 @@ export default function App() {
               endPoint={endPoint}
               onMapClick={onMapClick}
               onResetRoute={resetRoute}
+              routeData={routeResult}
             />
 
             <div className="map-frame-footer">
               <span>
                 <Crosshair size={13} />
-                {startPoint ? `A: ${formatPoint(startPoint)}` : 'A: Not selected'}
+                {startPoint
+                  ? `A: ${formatPoint(startPoint)}`
+                  : 'A: Not selected'}
               </span>
               <span>
-                {endPoint ? `B: ${formatPoint(endPoint)}` : 'B: Not selected'}
+                {endPoint
+                  ? `B: ${formatPoint(endPoint)}`
+                  : 'B: Not selected'}
               </span>
               <span>© OpenStreetMap contributors</span>
             </div>
           </div>
 
+          {routeResult && (
+            <section className="route-results" aria-live="polite">
+              <div className="route-results-heading">
+                <div>
+                  <span className="eyebrow">CALCULATED WALKING ROUTE</span>
+                  <h2>{routeResult.metadata.distance_km.toFixed(2)} km</h2>
+                </div>
+                <span className="route-mode-label">
+                  {routeResult.metadata.mode.toUpperCase()}
+                </span>
+              </div>
+
+              <div className="route-result-grid">
+                <div>
+                  <span>Estimated walking time</span>
+                  <strong>
+                    {Math.round(
+                      routeResult.metadata.estimated_walking_minutes,
+                    )} min
+                  </strong>
+                </div>
+                <div>
+                  <span>Route segments</span>
+                  <strong>{routeResult.metadata.route_segments}</strong>
+                </div>
+                <div>
+                  <span>Estimated score</span>
+                  <strong>
+                    {routeResult.metadata.average_estimated_safety_score ??
+                      'N/A'}
+                    {routeResult.metadata.average_estimated_safety_score !==
+                    null
+                      ? '/100'
+                      : ''}
+                  </strong>
+                </div>
+                <div>
+                  <span>Mapped attributes</span>
+                  <strong>
+                    {routeResult.metadata.mapped_attribute_coverage_percent}%
+                  </strong>
+                </div>
+              </div>
+
+              <p className="route-disclaimer">
+                Walking time is an estimate. Safety scores use mapped street
+                attributes and are not validated crime or personal-safety
+                predictions.
+              </p>
+
+              {Math.max(
+                routeResult.metadata.snapped_start_distance_m,
+                routeResult.metadata.snapped_end_distance_m,
+              ) > 30 && (
+                <p className="route-disclaimer">
+                  One or more selected points were snapped to a mapped street.
+                  Start offset:{' '}
+                  {routeResult.metadata.snapped_start_distance_m} m; destination
+                  offset: {routeResult.metadata.snapped_end_distance_m} m.
+                </p>
+              )}
+            </section>
+          )}
+
           <InsightsPanel
-            routeReady={Boolean(startPoint && endPoint)}
+            routeReady={Boolean(routeResult)}
             routeMode={mode}
             city={city}
           />
 
           <footer className="app-footer">
-            <span>PATHGUARD <span className="footer-separator">/</span> BUILT FOR SAFER WALKING</span>
-            <span>Prototype v0.2.0 <span className="footer-separator">·</span> Routing backend pending</span>
+            <span>
+              PATHGUARD <span className="footer-separator">/</span> BUILT FOR
+              SAFER WALKING
+            </span>
+            <span>
+              Prototype v0.3.0 <span className="footer-separator">·</span>{' '}
+              {routeResult ? 'Route calculated' : 'Pedestrian routing enabled'}
+            </span>
           </footer>
         </section>
       </main>

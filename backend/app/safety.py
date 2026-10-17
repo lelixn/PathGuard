@@ -1,130 +1,132 @@
 
-from math import isnan
 from typing import Any
 
 
-def _normalize(value: Any) -> list[str]:
-    """Normalize OSM attributes that may be strings, lists, or missing."""
+def _values(value: Any) -> set[str]:
     if value is None:
-        return []
+        return set()
 
-    if isinstance(value, (list, tuple, set)):
-        values = value
-    else:
-        values = [value]
+    if not isinstance(value, (list, tuple, set)):
+        value = [value]
 
-    return [
-        normalized
-        for item in values
-        if item is not None
-        and not _is_nan(item)
-        and (normalized := str(item).strip().lower())
-    ]
-
-
-def _is_nan(value: Any) -> bool:
-    try:
-        return isnan(value)
-    except (TypeError, ValueError):
-        return False
+    return {
+        str(item).strip().lower()
+        for item in value
+        if item is not None and str(item).strip()
+    }
 
 
 def score_street(attributes: dict[str, Any]) -> dict[str, Any]:
     """
-    Estimate street suitability from mapped OSM attributes.
+    Estimate pedestrian-route suitability from OSM attributes.
 
-    This is a heuristic, not a validated crime or personal-safety model.
-    Missing attributes are reported as unknown.
+    This is a transparent heuristic, not a validated personal-safety
+    or crime-risk model.
     """
     score = 60
     reasons: list[str] = []
     known_signals = 0
 
-    highway_values = _normalize(attributes.get("highway"))
-    highway = highway_values[0] if highway_values else ""
+    highway = _values(attributes.get("highway"))
+    foot = _values(attributes.get("foot"))
+    sidewalk = _values(attributes.get("sidewalk"))
+    lit = _values(attributes.get("lit"))
+    maxspeed = _values(attributes.get("maxspeed"))
 
-    foot_values = _normalize(attributes.get("foot"))
-    sidewalk_values = _normalize(attributes.get("sidewalk"))
-    lit_values = _normalize(attributes.get("lit"))
-    maxspeed_values = _normalize(attributes.get("maxspeed"))
-
-    # Road type: a proxy for pedestrian suitability, not crime risk.
-    pedestrian_friendly = {
-        "pedestrian",
-        "footway",
-        "path",
-        "living_street",
-        "steps",
-        "track",
-    }
-    vehicle_oriented = {
-        "motorway",
-        "motorway_link",
-        "trunk",
-        "trunk_link",
-    }
-
+    # Road classification is a proxy for pedestrian suitability only.
     if highway:
         known_signals += 1
-        if highway in pedestrian_friendly:
+
+        if highway.intersection({
+            "footway", "pedestrian", "path", "living_street"
+        }):
             score += 15
-            reasons.append("Mapped as a pedestrian-oriented path or street")
-        elif highway in vehicle_oriented:
-            score -= 25
-            reasons.append("Mapped road type is primarily vehicle-oriented")
-        else:
-            reasons.append(f"Mapped road type: {highway}")
+            reasons.append("Mapped as pedestrian-oriented infrastructure")
 
-    # Explicit pedestrian access.
-    if foot_values:
-        known_signals += 1
-        if any(value in {"no", "private"} for value in foot_values):
+        elif highway.intersection({
+            "motorway", "motorway_link", "trunk", "trunk_link"
+        }):
             score -= 25
-            reasons.append("Mapped pedestrian access is restricted")
-        elif any(value in {"yes", "designated", "permissive"} for value in foot_values):
+            reasons.append("Mapped road class is primarily vehicle-oriented")
+
+        elif highway.intersection({
+            "primary", "primary_link"
+        }):
+            score -= 8
+            reasons.append("Mapped as a primary road")
+
+        elif highway.intersection({
+            "secondary", "secondary_link"
+        }):
+            score -= 4
+            reasons.append("Mapped as a secondary road")
+
+        elif highway.intersection({
+            "residential", "living_street"
+        }):
             score += 5
-            reasons.append("Mapped pedestrian access is permitted")
+            reasons.append("Mapped residential or low-speed street")
 
-    # Sidewalk data is useful, but absence does not prove there is no sidewalk.
-    if sidewalk_values:
+        else:
+            reasons.append("Road class is mapped")
+
+    if foot:
         known_signals += 1
-        if any(value in {"both", "left", "right", "yes", "separate"} for value in sidewalk_values):
+
+        if foot.intersection({"no", "private"}):
+            score -= 30
+            reasons.append("Pedestrian access is restricted")
+
+        elif foot.intersection({"yes", "designated", "permissive"}):
+            score += 5
+            reasons.append("Pedestrian access is explicitly permitted")
+
+    if sidewalk:
+        known_signals += 1
+
+        if sidewalk.intersection({
+            "both", "left", "right", "yes", "separate"
+        }):
             score += 10
             reasons.append("Sidewalk infrastructure is mapped")
-        elif any(value in {"no", "none"} for value in sidewalk_values):
-            score -= 10
+
+        elif sidewalk.intersection({"no", "none"}):
+            score -= 12
             reasons.append("OSM explicitly indicates no sidewalk")
 
-    # Lighting is an attribute, not evidence of actual nighttime conditions.
-    if lit_values:
+    if lit:
         known_signals += 1
-        if any(value in {"yes", "automatic"} for value in lit_values):
-            score += 10
+
+        if lit.intersection({"yes", "automatic"}):
+            score += 8
             reasons.append("Street lighting is mapped")
-        elif any(value == "no" for value in lit_values):
-            score -= 10
+
+        elif "no" in lit:
+            score -= 8
             reasons.append("OSM explicitly indicates no street lighting")
 
-    # Posted speed is only a rough proxy; it is not a direct measurement
-    # of traffic volume or driver behavior.
-    if maxspeed_values:
-        known_speed = None
-        for value in maxspeed_values:
-            digits = "".join(ch for ch in value if ch.isdigit())
-            if digits:
-                known_speed = int(digits)
-                break
+    if maxspeed:
+        parsed_speeds = []
 
-        if known_speed is not None:
+        for value in maxspeed:
+            digits = "".join(character for character in value if character.isdigit())
+            if digits:
+                parsed_speeds.append(int(digits))
+
+        if parsed_speeds:
             known_signals += 1
-            if known_speed <= 30:
+            speed = min(parsed_speeds)
+
+            if speed <= 30:
                 score += 5
-                reasons.append(f"Mapped speed limit: {known_speed}")
-            elif known_speed >= 60:
+                reasons.append(f"Mapped speed limit: {speed}")
+
+            elif speed >= 60:
                 score -= 10
-                reasons.append(f"Mapped high speed limit: {known_speed}")
+                reasons.append(f"Mapped high speed limit: {speed}")
+
             else:
-                reasons.append(f"Mapped speed limit: {known_speed}")
+                reasons.append(f"Mapped speed limit: {speed}")
 
     score = max(0, min(100, score))
 
@@ -141,12 +143,12 @@ def score_street(attributes: dict[str, Any]) -> dict[str, Any]:
         "known_signals": known_signals,
         "data_completeness": (
             "some_mapped_attributes"
-            if known_signals
+            if known_signals > 0
             else "insufficient_data"
         ),
         "reasons": reasons or [
-            "Insufficient mapped attributes for a meaningful assessment"
+            "Insufficient mapped attributes for assessment"
         ],
-        "model": "osm_heuristic_v1",
+        "model": "osm_heuristic_v2",
         "validated_safety_data": False,
     }

@@ -18,6 +18,23 @@ export type MapPoint = {
   lat: number;
 };
 
+type RouteData = {
+  type: 'FeatureCollection';
+  features: Array<{
+    type: 'Feature';
+    geometry: {
+      type: 'LineString';
+      coordinates: number[][];
+    };
+    properties: Record<string, unknown>;
+  }>;
+  metadata: {
+    distance_km: number;
+    estimated_walking_minutes: number;
+    mode: string;
+  };
+};
+
 type MapViewProps = {
   city: string;
   layers: LayerState;
@@ -25,6 +42,7 @@ type MapViewProps = {
   endPoint: MapPoint | null;
   onMapClick: (lng: number, lat: number) => void;
   onResetRoute: () => void;
+  routeData: RouteData | null;
 };
 
 type StreetProperties = {
@@ -76,6 +94,7 @@ export default function MapView({
   endPoint,
   onMapClick,
   onResetRoute,
+  routeData,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -239,6 +258,56 @@ export default function MapView({
       mapRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+  const map = mapRef.current;
+  if (!map) return;
+
+  const source = map.getSource(
+    'selected-route',
+  ) as maplibregl.GeoJSONSource | undefined;
+
+  const features = routeData
+    ? routeData.features
+    : startPoint && endPoint
+      ? [
+          {
+            type: 'Feature' as const,
+            properties: { kind: 'preview' },
+            geometry: {
+              type: 'LineString' as const,
+              coordinates: [
+                [startPoint.lng, startPoint.lat],
+                [endPoint.lng, endPoint.lat],
+              ],
+            },
+          },
+        ]
+      : [];
+
+  const data = {
+    type: 'FeatureCollection' as const,
+    features,
+  };
+
+  source?.setData(data);
+
+  if (routeData && routeData.features.length > 0) {
+    const bounds = new maplibregl.LngLatBounds();
+
+    routeData.features.forEach((feature) => {
+      feature.geometry.coordinates.forEach(([lng, lat]) => {
+        bounds.extend([lng, lat]);
+      });
+    });
+
+    map.fitBounds(bounds, {
+      padding: { top: 90, bottom: 100, left: 90, right: 90 },
+      maxZoom: 16,
+      duration: 800,
+    });
+  }
+}, [routeData, startPoint, endPoint]);
 
   // Move the map when the selected city changes.
   useEffect(() => {

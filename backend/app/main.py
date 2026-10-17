@@ -505,16 +505,135 @@ def calculate_walking_route(
             else 40
         )
 
+        
+        highway_values = attributes.get("highway", [])
+        if isinstance(highway_values, str):
+            highway_values = [highway_values]
+        highway_values = {
+            str(value).lower()
+            for value in highway_values
+            if value is not None
+        }
+
+        foot_values = attributes.get("foot", [])
+        if isinstance(foot_values, str):
+            foot_values = [foot_values]
+        foot_values = {
+            str(value).lower()
+            for value in foot_values
+            if value is not None
+        }
+
+        sidewalk_values = attributes.get("sidewalk", [])
+        if isinstance(sidewalk_values, str):
+            sidewalk_values = [sidewalk_values]
+        sidewalk_values = {
+            str(value).lower()
+            for value in sidewalk_values
+            if value is not None
+        }
+
+        lit_values = attributes.get("lit", [])
+        if isinstance(lit_values, str):
+            lit_values = [lit_values]
+        lit_values = {
+            str(value).lower()
+            for value in lit_values
+            if value is not None
+        }
+
+        # Hard restriction: don't route over explicitly forbidden
+        # pedestrian edges.
+        if foot_values.intersection({"no", "private"}):
+            continue
+
+        # Base score and infrastructure evidence.
+        assessment = score_street(attributes)
+        known_signals = assessment["known_signals"]
+        effective_score = assessment["safety_score"]
+
+        # Start with distance. Apply transparent penalties for road
+        # characteristics; these are proxies, not validated safety data.
+        penalty = 0.0
+
+        if highway_values.intersection(
+            {"motorway", "motorway_link", "trunk", "trunk_link"}
+        ):
+            penalty += 3.0
+        elif highway_values.intersection(
+            {"primary", "primary_link", "secondary", "secondary_link"}
+        ):
+            penalty += 0.8
+        elif highway_values.intersection(
+            {"footway", "pedestrian", "path", "living_street"}
+        ):
+            penalty -= 0.2
+
+        if sidewalk_values.intersection({"both", "left", "right", "yes", "separate"}):
+            penalty -= 0.25
+        elif sidewalk_values.intersection({"no", "none"}):
+            penalty += 0.6
+
+        if lit_values.intersection({"yes", "automatic"}):
+            penalty -= 0.15
+        elif lit_values.intersection({"no"}):
+            penalty += 0.35
+
+        # Never treat missing data as evidence of safety.
+        if known_signals == 0:
+            penalty += 0.2
+
+        # Convert to a positive distance multiplier.
+        multiplier = max(0.25, 1.0 + penalty)
+
         if mode == "shortest":
             weight = length_m
-        elif mode == "safest":
-            weight = length_m * (
-                1 + (100 - effective_score) / 50
-            )
-        else:
-            weight = length_m * (
-                1 + (100 - effective_score) / 100
-            )
+        elif mode == "balanced":
+            weight = length_m * multiplier
+        else:  # safest
+            weight = length_m * (multiplier ** 2)
+
+        edge = dict(attributes)
+        edge["_route_length_m"] = length_m
+        edge["_safety_score"] = effective_score
+        edge["_known_signals"] = known_signals
+        edge["_weight"] = weight
+        edge["_original_key"] = str(key)
+
+        if (
+            not routing_graph.has_edge(u, v)
+            or weight < routing_graph[u][v]["_weight"]
+        ):
+            routing_graph.add_edge(u, v, **edge)
+
+    for u, v, key, attributes in graph.edges(keys=True, data=True):
+        try:
+            length_m = float(attributes.get("length", 1))
+        except (TypeError, ValueError):
+            length_m = 1.0
+
+        if not math.isfinite(length_m) or length_m <= 0:
+            length_m = 1.0
+
+        assessment = score_street(attributes)
+        known_signals = assessment["known_signals"]
+
+        # Unknown attributes must not be presented as known safety.
+        effective_score = (
+            assessment["safety_score"]
+            if known_signals > 0
+            else 40
+        )
+
+        weight = length_m
+
+        if mode == "shortest":
+            weight = length_m
+        elif mode == "balanced":
+            weight = length_m
+        else:  # safest
+            weight = length_m
+            
 
         edge = dict(attributes)
         edge["_route_length_m"] = length_m
