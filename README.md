@@ -14,19 +14,18 @@
 
 ---
 
+
+<p align="center">
+ 
 ## Demo
 
 <p align="center">
-  <img src="docs/demo-map.gif" width="100%" alt="PATHGUARD interactive map demo"/>
+  <img src="https://media.giphy.com/media/lcRCJBzSscaA0tLJz1/giphy.gif"
+       width="100%"
+       alt="Animated city walking visual"/>
   <em>Interactive pedestrian map and street-level safety overlay</em>
 </p>
 
-<p align="center">
-  <img src="docs/demo-routing.gif" width="100%" alt="PATHGUARD walking route demo"/>
-  <em>Pedestrian route planning and trip insights</em>
-</p>
-
-> Replace these demo GIFs with actual screen recordings saved in `docs/`. The GIFs will appear automatically once the files exist.
 
 ## Features
 
