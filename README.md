@@ -1,75 +1,115 @@
-# React + TypeScript + Vite
+# PATHGUARD
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+<p align="center">
+  <strong>Find your way. Walk with confidence.</strong><br/>
+  An OpenStreetMap-powered pedestrian safety and route-planning platform.
+</p>
 
-Currently, two official plugins are available:
+<p align="center">
+  <img src="https://img.shields.io/badge/React-TypeScript-3178C6?logo=react&logoColor=white" alt="React and TypeScript"/>
+  <img src="https://img.shields.io/badge/FastAPI-Python-009688?logo=fastapi&logoColor=white" alt="FastAPI"/>
+  <img src="https://img.shields.io/badge/Maps-MapLibre-396CB2" alt="MapLibre"/>
+  <img src="https://img.shields.io/badge/Data-OpenStreetMap-7EBC6F?logo=openstreetmap&logoColor=white" alt="OpenStreetMap"/>
+</p>
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## Demo
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+<p align="center">
+  <img src="docs/demo-map.gif" width="100%" alt="PATHGUARD interactive map demo"/>
+  <em>Interactive pedestrian map and street-level safety overlay</em>
+</p>
 
-## Expanding the ESLint configuration
+<p align="center">
+  <img src="docs/demo-routing.gif" width="100%" alt="PATHGUARD walking route demo"/>
+  <em>Pedestrian route planning and trip insights</em>
+</p>
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+> Replace these demo GIFs with actual screen recordings saved in `docs/`. The GIFs will appear automatically once the files exist.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Features
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+- **Interactive maps** — explore streets using MapLibre and OpenStreetMap.
+- **Pedestrian network** — retrieve walkable street graphs using OSMnx.
+- **Safety scoring** — estimate street suitability from available mapped attributes.
+- **Walking routes** — calculate graph-based routes using shortest, balanced, or safest modes.
+- **Route insights** — view distance, estimated walking time, and route-level score summaries.
+- **Multi-city support** — explore supported Indian cities.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Tech Stack
 
+| Frontend | Backend & Data |
+|---|---|
+| React, TypeScript, Vite | Python, FastAPI |
+| MapLibre GL JS | OSMnx, NetworkX |
+| Lucide React, CSS | OpenStreetMap, GeoJSON |
+
+## Getting Started
+
+**Prerequisites:** Node.js, Python 3.12, Git, and internet access.
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/lelixn/PATHGUARD.git
+cd PATHGUARD
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+Replace the repository URL if your GitHub repository uses a different name or owner.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### 2. Start the backend
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```powershell
+cd backend
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
+
+API documentation: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+
+### 3. Start the frontend
+
+Open a second terminal:
+
+```powershell
+cd D:\pathguard
+npm install
+npm run dev
+```
+
+Open the local URL printed by Vite, usually [http://localhost:5173](http://localhost:5173).
+
+Ensure the Vite development proxy forwards `/api` requests to `http://127.0.0.1:8000`.
+
+## Safety Disclaimer
+
+PATHGUARD's current safety scores are **heuristic estimates**, not verified crime statistics or validated personal-safety predictions. Missing map attributes do not prove that a street is unsafe or safe. Walking times are estimates, and route availability depends on mapped pedestrian infrastructure.
+
+Always use your judgment when choosing a route.
+
+## Roadmap
+
+- [x] Interactive map foundation
+- [x] OpenStreetMap pedestrian-network API
+- [x] Initial street-scoring engine
+- [x] Graph-based walking-route API
+- [ ] Frontend route integration and end-to-end testing
+- [ ] Verified safety datasets and improved risk modelling
+- [ ] Production deployment
+
+## Contributing
+
+Issues and pull requests are welcome. Test changes locally and document known limitations.
+
+## Data Attribution
+
+Map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright).
+
+---
+
+<p align="center">
+  Built with curiosity to make walking routes more informed.
+</p>
