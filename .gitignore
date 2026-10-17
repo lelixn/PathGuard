@@ -1,0 +1,27 @@
+
+# Frontend
+node_modules/
+dist/
+.vite/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Python backend
+backend/.venv/
+backend/venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Generated graph cache
+backend/data/graphs/*
+!backend/data/graphs/.gitkeep
+
+# Editors and operating system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
